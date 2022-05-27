@@ -7,35 +7,35 @@ from app.constants import RABBIT_HOST
 
 
 class WebSocketHandler(object):
+
+    def __init__(self, request):
+        self.request = request
+
     @staticmethod
     def to_json(message):
         body = message.body.decode("utf8").replace("'", '"')
         return json.loads(body)
 
-    @staticmethod
-    async def get_ws(request):
-        ws = web.WebSocketResponse()
-        await ws.prepare(request)
+    async def get_ws(self):
+        try:
+            ws = web.WebSocketResponse()
+            await ws.prepare(self.request)
+        except ConnectionResetError:
+            pass
 
         return ws
 
-    @classmethod
-    async def websocket_handler(cls, request):
-        try:
-            ws = await cls.get_ws(request)
-            request.app["websockets"].append(ws)
-        except ConnectionResetError:
-            pass
+    async def send_messages(self):
+        """Отправлка сообщений через веб-сокеты"""
+
+        self.request.app["websockets"].append(await self.get_ws())
 
         async with RabbitConnection(RABBIT_HOST) as rabbit:
             async with rabbit.queue.iterator() as queue_iter:
                 async for message in queue_iter:
                     async with message.process():
-                        for i in request.app["websockets"]:
+                        for i in self.request.app["websockets"]:
                             try:
-                                await i.send_json(cls.to_json(message))
+                                await i.send_json(self.to_json(message))
                             except ConnectionResetError:
                                 continue
-                                pass
-
-        return ws
